@@ -8,6 +8,7 @@ namespace AreaRegionCreator
         //creat a new clear color
         public Color color = Color.FromArgb(0,0,0,0); 
         public List<Area> areas = new();
+        public List<(string start, string end)> monsoonList = new();
 
         public Regions(string name) {
             this.name = name;

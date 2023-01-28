@@ -1,24 +1,12 @@
 ﻿using AreaRegionCreator;
 using System.Diagnostics;
 using System.Drawing;
-using System;
 
 internal class Program
 {
     private static void Main() {
-        double minimumSharedAreaToCount = 0.05;
+        double minimumSharedAreaToCount = 0.05; //prevents a few pixels from filling the entire prov that would otherwise be not counted
         bool debug = false;
-
-
-        string localDir = Directory.GetParent(Directory.GetCurrentDirectory()).Parent.Parent.FullName;
-        //stopwach
-        Stopwatch stopwatch = new();
-        stopwatch.Start();
-
-        //true draws area_region.png and writes area_region_definition.csv
-        //false takes area_region.png and area_region_definition.csv from Input folder and matches them to provinces
-        bool convertPNGToIDs = true;
-
 
         //check if the correct version of .NET is installed
         if (Environment.Version.Major < 6) {
@@ -27,55 +15,88 @@ internal class Program
             Console.ReadKey();
             return;
         }
+        
+        string localDir = Directory.GetParent(Directory.GetCurrentDirectory()).Parent.Parent.FullName;
+        //stopwach
+        Stopwatch stopwatch = new();
+        stopwatch.Start();
 
-        //check if provinces.png and definition.csv exist
-        if (!File.Exists(localDir + @"\Input\map_data\provinces.png") || !File.Exists(localDir + @"\Input\map_data\definition.csv")) {
-            Console.WriteLine("provinces.png or definition.csv could not found\nPlease add them");
+        
+        //true draws area_region.png and writes area_region_definition.csv
+        //false takes area_region.png and area_region_definition.csv from Input folder and matches them to provinces
+        bool convertPNGToIDs = true;
+        string game = "EU4"; //EU4 or IR
+        ParseConfig();
+
+        string[] eu4Files = { "provinces.bmp", "definition.csv", "area.txt", "region.txt", "superregion.txt" };
+        string[] irFiles = { "provinces.png", "definition.csv", "areas.txt", "regions.txt"};
+        string[] files = game == "EU4" ? eu4Files : irFiles;
+        string[] areaRegionFiles = { "area_region.png", "area_region_definition.csv" };
+
+
+        //check if the first 2 entries in the files array exist in localDir\Input\area_region\
+        if (!File.Exists(localDir + @"\Input\map_data\" + files[0]) || !File.Exists(localDir + @"\Input\map_data\" + files[1])) {
+            Console.WriteLine("provinces image or definition.csv could not found\nPlease add them");
             Console.WriteLine("Press any key to exit");
             Console.ReadKey();
             return;
-        }
-        //check if area_region.png exists
-        else if (!File.Exists(localDir + @"\Input\area_region\area_region.png") || !File.Exists(localDir + @"\Input\area_region\area_region_definition.csv")) {
+
+        }        
+        //check if both areaRegionFiles exist in localDir\Input\area_region\
+        else if (!File.Exists(localDir + @"\Input\area_region\" + areaRegionFiles[0]) || !File.Exists(localDir + @"\Input\area_region\" + areaRegionFiles[1])) {
             Console.WriteLine("area_region.png or area_region_definition.csv could not found\nGenerating them");
             convertPNGToIDs = false;
-            
-            if (!File.Exists(localDir + @"\Input\map_data\areas.txt") || !File.Exists(localDir + @"\Input\map_data\regions.txt")) {
-                Console.WriteLine("\n\nareas.txt or regions.txt could not found\nPlease add them");
+
+            //check if the last 2-3 entries in the files array exist in localDir\Input\map_data\
+            if (!File.Exists(localDir + @"\Input\map_data\" + files[2]) || !File.Exists(localDir + @"\Input\map_data\" + files[3]) || (game == "EU4" && !File.Exists(localDir + @"\Input\map_data\" + files[4]))) {
+                Console.WriteLine("area.txt, region.txt or superregion.txt could not found\nPlease add them");
                 Console.WriteLine("Press any key to exit");
                 Console.ReadKey();
                 return;
             }
         }
 
+        
+
         Dictionary <Color, Province> provDict = ParseDefinitions();
-        (Dictionary<string, Regions> regions, Dictionary<string, Area> areas) = ParseAreaRegion(provDict);        
+        (Dictionary<string, Regions> regions, Dictionary<string, Area> areas, Dictionary<string, SuperRegion> superRegions) = ParseAreaRegion(provDict);        
         
         ParseProvMap(provDict);
 
         if (convertPNGToIDs) {
             ParseAreaRegionMap(areas);
             MapProvincesToAreas(provDict, areas);
-            WriteAreas(areas, regions);
+            WriteAreas(areas, regions, superRegions);
             Localize(provDict, areas, regions);
         }
-        WriteareaRegionDefinitions(regions);
+        WriteareaRegionDefinitions(regions, superRegions);
         DrawAreas(areas);
 
         stopwatch.Stop();
         Console.WriteLine("Time elapsed: {0}", stopwatch.Elapsed);
 
         //parse areaName and regions
-        (Dictionary<string, Regions> regions, Dictionary<string, Area> areas) ParseAreaRegion(Dictionary<Color, Province> provDict) {
+        (Dictionary<string, Regions> regions, Dictionary<string, Area> areas, Dictionary<string, SuperRegion> superRegion) ParseAreaRegion(Dictionary<Color, Province> provDict) {
             Console.WriteLine("Parsing Areas and Regions...");
 
             //Dictionary for regions
             Dictionary<string, Regions> regions = new();
             //Dictionary for areas
             Dictionary<string, Area> areas = new();
+            //Dictionary of super regions
+            Dictionary<string, SuperRegion> superRegions = new();
 
             if (!convertPNGToIDs) {
-                string[] areaFiles = File.ReadAllLines(localDir + @"\Input\map_data\areas.txt");
+                //create a blank string aray
+                string[] areaLines = Array.Empty<string>();
+                if (game == "EU4") {
+                    //get all files in the area folder
+                    areaLines = File.ReadAllLines(localDir + @"\Input\map_data\area.txt");
+                }
+                else if (game == "IR") {
+                    //get all files in the area folder
+                    areaLines = File.ReadAllLines(localDir + @"\Input\map_data\areas.txt");
+                }
 
                 //dictionary with key prov.id and value of prov
                 Dictionary<int, Province> provDictID = new();
@@ -89,8 +110,8 @@ internal class Program
                 bool provFound = false;
                 bool colorFound = false;
                 Area currentArea = new();
-                foreach (string line in areaFiles) {
-                    string l1 = line.Replace("{", " { ").Replace("}", " } ").Replace("=", " = ").Replace("  ", " ").Split('#')[0].Trim();
+                foreach (string line in areaLines) {
+                    string l1 = CleanLine(line);
                     if (l1 == "") continue;
 
 
@@ -100,6 +121,10 @@ internal class Program
 
                             currentArea = new Area(name);
                             areas.Add(name, currentArea);
+
+                            if (game == "EU4") {
+                                provFound = true;
+                            }
                         }
                         //lets stop that fuck up from happing again
                         else if (l1.Contains('{')) {
@@ -113,7 +138,10 @@ internal class Program
                     }
                     else if(indentation == 1) {
                         if (l1.StartsWith("provinces")) provFound = true;
-                        else if (l1.StartsWith("color")) colorFound = true;
+                        else if (l1.StartsWith("color")) {
+                            colorFound = true;
+                            if (game == "EU4") provFound = false;
+                        }
                     }
 
                     if (provFound) {
@@ -143,20 +171,31 @@ internal class Program
                                 indentation--;
                                 provFound = false;
                                 colorFound = false;
+                                if (game == "EU4") provFound = true;
                             }
                         }
                     }
                 }
 
                 //parse regions
-                string[] regionFiles = File.ReadAllLines(localDir + @"\Input\map_data\regions.txt");
+                string[] regionLines = Array.Empty<string>();
+                if (game == "EU4") {
+                    //get all files in the region folder
+                    regionLines = File.ReadAllLines(localDir + @"\Input\map_data\region.txt");
+                }
+                else if (game == "IR") {
+                    //get all files in the region folder
+                    regionLines = File.ReadAllLines(localDir + @"\Input\map_data\regions.txt");
+                }
 
                 indentation = 0;
                 bool areaFound = false;
                 colorFound = false;
+                bool monsoonFound = false;
+                (string start, string end) monsoon = ("", "");
                 Regions currentRegion = new();
-                foreach (string line in regionFiles) {
-                    string l1 = line.Replace("{", " { ").Replace("}", " } ").Replace("=", " = ").Replace("  ", " ").Split('#')[0].Trim();
+                foreach (string line in regionLines) {
+                    string l1 = CleanLine(line);
                     if (l1 == "") continue;
 
 
@@ -179,6 +218,7 @@ internal class Program
                     else if (indentation == 1) {
                         if (l1.StartsWith("areas")) areaFound = true;
                         else if (l1.StartsWith("color")) colorFound = true;
+                        else if (l1.StartsWith("monsoon")) monsoonFound = true;
                     }
 
                     if (areaFound) {
@@ -194,6 +234,21 @@ internal class Program
                         currentRegion.color = GetColor(l1);
                     }
 
+                    if (monsoonFound) {
+                        if (l1.Contains("00.")) {
+                            //set l1 to first empty space in monsoon
+                            if (monsoon.start == "") {
+                                monsoon.start = l1.Split()[0];
+                            }
+                            else if (monsoon.end == "") {
+                                monsoon.end = l1.Split()[0];
+                                currentRegion.monsoonList.Add(monsoon);
+                                monsoon = ("", "");
+                            }
+                        }
+
+                    }
+
                     //change indentation
                     if (l1.Contains('{') || l1.Contains('}')) {
                         string[] l2 = l1.Split();
@@ -203,6 +258,7 @@ internal class Program
                                 indentation--;
                                 areaFound = false;
                                 colorFound = false;
+                                monsoonFound = false;
                             }
                         }
                     }
@@ -218,6 +274,58 @@ internal class Program
                             color = Color.FromArgb(rnd.Next(256), rnd.Next(256), rnd.Next(256));
                         } while (usedAreaColors.Contains(color));
                         area.color = color;
+                    }
+                }
+
+                if(game == "EU4") {
+                    //parse super regions
+                    indentation = 0;
+                    SuperRegion currentSuperRegion = new();
+                    string[] superRegionLines = File.ReadAllLines(localDir + @"\Input\map_data\superregion.txt");
+                    foreach(string line in superRegionLines) {
+                        string l1 = CleanLine(line);
+                        if (l1 == "") continue;
+
+
+                        if (indentation == 0) {
+                            if (line.Contains('=')) {
+                                string name = l1.Split("=")[0].Trim();
+
+                                currentSuperRegion = new SuperRegion(name);
+                                superRegions.Add(name, currentSuperRegion);
+                            }
+                            else if (l1.Contains('{')) {
+                                string name = l1.Split("{")[0].Trim();
+
+                                currentSuperRegion = new SuperRegion(name);
+                                superRegions.Add(name, currentSuperRegion);
+
+                                Console.WriteLine("Error in superregions.txt: {0} is missing = sign", name);
+                            }
+                            
+                        }
+                        else if (indentation == 1) {
+                            if (l1.Contains("restrict_charter")){
+                                Console.WriteLine(currentSuperRegion.name);
+                                currentSuperRegion.restrict_charter = true;
+                            }
+                            else {
+                                //if line is a region name add the region to the super region
+                                if (regions.ContainsKey(l1)) {
+                                    currentSuperRegion.regions.Add(regions[l1]);
+                                }
+                            }
+                        }
+
+
+                        //update indentation
+                        if (l1.Contains('{') || l1.Contains('}')) {
+                            string[] l2 = l1.Split();
+                            foreach (string w in l2) {
+                                if (w.Contains('{')) indentation++;
+                                if (w.Contains('}')) indentation--;
+                            }
+                        }
                     }
                 }
 
@@ -244,12 +352,31 @@ internal class Program
                     if (split.Length > 5) {
                         writeColor = bool.Parse(split[5]);
                     }
-                    //region color is the 7th - 9th values
-                    Color regionColor = new();
                     bool setRegionColor = false;
-                    if (split.Length >= 8) {
-                        regionColor = Color.FromArgb(255, int.Parse(split[6]), int.Parse(split[7]), int.Parse(split[8]));
-                        setRegionColor = true;
+                    Color regionColor = new();
+                    List<(string start, string end)> mounsuneList = new();
+                    string superRegionName = "";
+                    bool setRestrict = false;
+
+                    if (game == "IR") {
+                        //region color is the 7th - 9th values                        
+                        if (split.Length >= 8) {
+                            regionColor = Color.FromArgb(255, int.Parse(split[6]), int.Parse(split[7]), int.Parse(split[8]));
+                            setRegionColor = true;
+                        }
+                    }
+                    else if (game == "EU4") {
+                        //super region is the 7th value
+                        superRegionName = split[6];
+                        setRestrict = bool.Parse(split[7]);
+                        //7th value is a list of monsunes tuples (start, end) seperate by a space
+                        if (split.Length > 9) {
+                            string[] mounsuneSplit = split[8].Split();
+                            foreach (string mounsune in mounsuneSplit) {
+                                string[] mounsuneSplit2 = mounsune.Replace("(","").Replace(")","").Split('-');
+                                mounsuneList.Add((mounsuneSplit2[0], mounsuneSplit2[1]));
+                            }
+                        }
                     }
 
 
@@ -277,10 +404,38 @@ internal class Program
                     if (setRegionColor) {
                         tmpRegion.color = regionColor;
                     }
+                    if (game == "EU4") {
+                        if (mounsuneList.Count > 0) {
+                            tmpRegion.monsoonList = mounsuneList;
+                        }
+
+                        //remove region from all super regions to prevent duplicates
+                        foreach (SuperRegion superRegion in superRegions.Values) {
+                            superRegion.regions.Remove(tmpRegion);
+                        }
+
+                        SuperRegion tmpSuperRegion = new();
+                        if (!superRegions.ContainsKey(superRegionName)) {
+                            tmpSuperRegion = new(superRegionName) {
+                                restrict_charter = setRestrict
+                            };
+                            superRegions.Add(superRegionName, tmpSuperRegion);
+                        }
+                        else {
+                            tmpSuperRegion = superRegions[superRegionName];
+                        }
+                        tmpSuperRegion.regions.Add(tmpRegion);
+                    }
+
+                    
                 }
             }
 
-            return (regions, areas);
+            return (regions, areas, superRegions);
+        }
+
+        string CleanLine(string line) {
+            return line.Replace("{", " { ").Replace("}", " } ").Replace("=", " = ").Replace("  ", " ").Split('#')[0].Trim();
         }
 
         Color GetColor(string line) {
@@ -410,9 +565,16 @@ internal class Program
         //parse prov map
         void ParseProvMap(Dictionary<Color, Province> provDict) {
             Console.WriteLine("Parsing prov map...");
+            
             //read the map
-            Bitmap map = new(localDir + @"\Input\map_data\provinces.png");
-
+            Bitmap map = new(1, 1);
+            if (game == "EU4") {
+                map = new Bitmap(localDir + @"\Input\map_data\provinces.bmp");
+            }
+            else if (game == "IR") {
+                map = new(localDir + @"\Input\map_data\provinces.png");
+            }
+            
             //loop through the map
             for (int x = 0; x < map.Width; x++) {
                 for (int y = 0; y < map.Height; y++) {
@@ -431,9 +593,9 @@ internal class Program
             }
         }
 
-        //parse areaName region map
+        //parse area region map
         void ParseAreaRegionMap(Dictionary<string, Area> areas) {
-            Console.WriteLine("Parsing areaName region map...");
+            Console.WriteLine("Parsing area map...");
 
             //setup areaColorDict with the color of each areaName and the areaName
             Dictionary<Color, Area> areaColorDict = new();
@@ -531,7 +693,7 @@ internal class Program
         }
 
         //write Areas and Regions to file
-        void WriteAreas(Dictionary<string, Area> areas, Dictionary<string, Regions> regions) {
+        void WriteAreas(Dictionary<string, Area> areas, Dictionary<string, Regions> regions, Dictionary<string, SuperRegion> superRegions) {
             Console.WriteLine("Writing areas and regions to file...");
 
             //check if output folder exists
@@ -549,11 +711,18 @@ internal class Program
             areaList.Sort((x, y) => x.name.CompareTo(y.name));
 
             //write the areas to file
-            using (StreamWriter sw = new(localDir + @"\Output\areas.txt")) {
+            string fName = "areas.txt";
+            if (game == "EU4") fName = "area.txt";
+            using (StreamWriter sw = new(localDir + @"\Output\"+fName)) {
+                if (game == "EU4") sw.WriteLine("random_new_world_region = {\n}");
                 foreach (Area area in areaList) {
                     sw.WriteLine(area.name + " = { #" + area.provs.Count);
-                    if(area.writeColor)
-                        sw.WriteLine("\tcolor = rgb { " + area.color.R + " " + area.color.G + " " + area.color.B + " }");
+                    if (area.writeColor) {
+                        if(game == "IR")
+                            sw.WriteLine("\tcolor = rgb { " + area.color.R + " " + area.color.G + " " + area.color.B + " }");
+                        else if (game == "EU4")
+                            sw.WriteLine("\tcolor = { " + area.color.R + " " + area.color.G + " " + area.color.B + " }");
+                    }
                     //add all area.prov.id to list
                     List<int> provIDList = new();
                     foreach (Province prov in area.provs) {
@@ -563,8 +732,12 @@ internal class Program
                     provIDList.Sort();
 
                     //write provIDList join on space
-                    sw.WriteLine("\tprovinces = { " + string.Join(" ", provIDList) + " }");
-                    
+                    if (game == "IR") {
+                        sw.WriteLine("\tprovinces = { " + string.Join(" ", provIDList) + " }");
+                    }
+                    else if(game == "EU4") {
+                        sw.WriteLine("\t" + string.Join(" ", provIDList));
+                    }
                     sw.WriteLine("}\n");
                 }
             }
@@ -579,7 +752,9 @@ internal class Program
             regionList.Sort((x, y) => x.name.CompareTo(y.name));
 
             //write the regions to file
-            using (StreamWriter sw = new(localDir + @"\Output\regions.txt")) {
+            fName = "regions.txt";
+            if (game == "EU4") fName = "region.txt";
+            using (StreamWriter sw = new(localDir + @"\Output\" + fName)) {
                 foreach (Regions region in regionList) {
                     sw.WriteLine(region.name + " = { #" + region.areas.Count + " areas");
                     if (region.color.A != 0) {
@@ -590,7 +765,46 @@ internal class Program
                         sw.WriteLine("\t\t" + area.name);
                     }
                     sw.WriteLine("\t}");
+                    if(region.monsoonList.Count > 0) {
+                        foreach ((string start, string end) in region.monsoonList) {
+                            sw.WriteLine("\tmonsoon = {");
+                            sw.WriteLine("\t\t" + start);
+                            sw.WriteLine("\t\t" + end);
+                            sw.WriteLine("\t}");
+                        }
+                    }
+
+
                     sw.WriteLine("}\n");
+                }
+            }
+
+            if (game == "EU4") {
+                //create a list of superRegions
+                List<SuperRegion> superRegionList = new();
+                foreach (KeyValuePair<string, SuperRegion> superRegion in superRegions) {
+                    superRegionList.Add(superRegion.Value);
+                }
+
+                //sort the list by superRegionName
+                superRegionList.Sort((x, y) => x.name.CompareTo(y.name));
+
+                //write the superRegions to file
+                fName = "superregion.txt";
+                using (StreamWriter sw = new(localDir + @"\Output\" + fName)) {
+                    sw.WriteLine("new_world_superregion = {\n}");
+                    foreach (SuperRegion superRegion in superRegionList) {
+                        sw.WriteLine(superRegion.name + " = { #" + superRegion.regions.Count + " regions");
+
+                        if (superRegion.restrict_charter) {
+                            sw.WriteLine("\n\trestrict_charter\t\t# harder to get TC here.\n");
+                        }
+                        
+                        foreach (Regions region in superRegion.regions) {
+                            sw.WriteLine("\t" + region.name);
+                        }
+                        sw.WriteLine("}\n");
+                    }
                 }
             }
         }
@@ -624,6 +838,16 @@ internal class Program
             //write regions and areas to localization
             using (StreamWriter sw = new(localDir + @"\Output\english\03_areas_regions_l_english.yml")) {
                 sw.WriteLine("l_english:");
+                if (game == "EU4") {
+                    sw.WriteLine(" #SUPERREGIONS");
+                    sw.WriteLine(" NEW_WORLD_SUPERREGION:0 \"New World Superregion\"");
+                    
+                    foreach (KeyValuePair<string, SuperRegion> superRegion in superRegions) {
+                        sw.WriteLine(" " + superRegion.Key + ":0 \"" + superRegion.Value.name + "\"");
+                    }
+                    sw.WriteLine("\n");
+                }
+
                 sw.WriteLine(" #REGIONS");
                 foreach (KeyValuePair<string, Regions> region in regions) {
                     sw.WriteLine(" " + region.Value.name + ":0 \"" + CapitalizeString(region.Value.name, "region") + "\"");
@@ -635,39 +859,73 @@ internal class Program
                 }
             }
         }
-        void WriteareaRegionDefinitions(Dictionary<string, Regions> regions) {
+        void WriteareaRegionDefinitions(Dictionary<string, Regions> regions, Dictionary<string, SuperRegion> superRegions) {
             Console.WriteLine("Writing area_region_deff.txt...");
 
             //check if output folder exists
             if (!Directory.Exists(localDir + @"\Output\area_region")) {
                 Directory.CreateDirectory(localDir + @"\Output\area_region");
             }
-
+            
             HashSet<Color> usedColors = new();
             Random rnd = new();
 
             //write areaRegionDefinitions.csv
             using StreamWriter sw = new(localDir + @"\Output\area_region\area_region_definition.csv");
-            sw.WriteLine("#Red;Green;Blue;AreaName,RegionName,SaveColorForArea;RegionRed(optional);RegionGreen(optional);RegionBlue(optional)");
-            foreach (KeyValuePair<string, Regions> region in regions) {
-                sw.WriteLine("#" + region.Key);
-                foreach (Area area in region.Value.areas) {
-                    sw.Write(area.color.R + ";");
-                    sw.Write(area.color.G + ";");
-                    sw.Write(area.color.B + ";");
-                    sw.Write(area.name + ";");
-                    sw.Write(region.Key + ";");
-                    sw.Write(area.writeColor + ";");
-                    if (region.Value.color.A != 0) {
-                        sw.Write(region.Value.color.R + ";");
-                        sw.Write(region.Value.color.G + ";");
-                        sw.Write(region.Value.color.B + ";");
+            if (game == "IR") {
+                sw.WriteLine("#Red;Green;Blue;AreaName;RegionName;SaveColorForArea;RegionRed(optional);RegionGreen(optional);RegionBlue(optional)");
+                foreach (KeyValuePair<string, Regions> region in regions) {
+                    sw.WriteLine("#" + region.Key);
+                    foreach (Area area in region.Value.areas) {
+                        sw.Write(area.color.R + ";");
+                        sw.Write(area.color.G + ";");
+                        sw.Write(area.color.B + ";");
+                        sw.Write(area.name + ";");
+                        sw.Write(region.Key + ";");
+                        sw.Write(area.writeColor + ";");
+                        if (region.Value.color.A != 0) {
+                            sw.Write(region.Value.color.R + ";");
+                            sw.Write(region.Value.color.G + ";");
+                            sw.Write(region.Value.color.B + ";");
+                        }
+                        sw.WriteLine();
+                        usedColors.Add(area.color);
+                    }
+                }
+            }
+            else if (game == "EU4") {
+                sw.WriteLine("#Red;Green;Blue;AreaName;RegionName;SaveColorForArea;SuperRegionName;restrict_charter;Monsoons(optional)");
+                foreach (KeyValuePair<string, SuperRegion> superRegion in superRegions) {
+                    sw.WriteLine("#" + superRegion.Key);
+                    foreach (Regions region in superRegion.Value.regions) {
+                        sw.WriteLine("\t#" + region.name);
+                        foreach (Area area in region.areas) {
+                            sw.Write("\t");
+                            sw.Write(area.color.R + ";");
+                            sw.Write(area.color.G + ";");
+                            sw.Write(area.color.B + ";");
+                            sw.Write(area.name + ";");
+                            sw.Write(region.name + ";");
+                            sw.Write(area.writeColor + ";");
+                            sw.Write(superRegion.Key + ";");
+                            sw.Write(superRegion.Value.restrict_charter + ";");
+                            if (region.monsoonList.Count > 0) {
+                                string m = "";
+                                foreach ((string start, string end) in region.monsoonList) {
+                                    m+="(" + start + "-" + end + ") ";
+                                }
+                                sw.Write(m.Trim() + ";");
+                            }
+                            sw.WriteLine();
+                            usedColors.Add(area.color);
+                        }
+                        sw.WriteLine();
                     }
                     sw.WriteLine();
-                    usedColors.Add(area.color);
                 }
-                sw.WriteLine();
             }
+            sw.WriteLine();
+            
             //generate 100 random colors not in usedColors
             sw.WriteLine("#Unused Areas");
             int count = 0;
@@ -676,7 +934,11 @@ internal class Program
                 do {
                     color = Color.FromArgb(rnd.Next(256), rnd.Next(256), rnd.Next(256));
                 } while (usedColors.Contains(color));
-                sw.WriteLine("#" + color.R + ";" + color.G + ";" + color.B + ";unused_area_" + count + ";usused_region;False");
+                sw.Write("#" + color.R + ";" + color.G + ";" + color.B + ";unused_area_" + count + ";usused_region;False");
+                if (game == "EU4") {
+                    sw.Write(";unused_super_region;False;");
+                }
+                sw.WriteLine();
 
                 count++;
 
@@ -692,7 +954,13 @@ internal class Program
                 Directory.CreateDirectory(localDir + @"\Output\area_region");
             }
 
-            Bitmap map = new(localDir + @"\Input\map_data\provinces.png");
+            Bitmap map = new(1, 1);
+            if (game == "EU4") {
+                map = new Bitmap(localDir + @"\Input\map_data\provinces.bmp");
+            }
+            else if (game == "IR") {
+                map = new(localDir + @"\Input\map_data\provinces.png");
+            }
 
             //create new image file the same size as provinces.png
             Bitmap areaMap = new(map.Width, map.Height);
@@ -720,6 +988,46 @@ internal class Program
             return string.Join(" ", name);
         }
 
+        void ParseConfig() {
+            
+            string[] lines = File.ReadAllLines(localDir + @"\Input\config.txt");
+            string[] validKeys = { "game" };
+            foreach(string line in lines) {
+                string l1 = CleanLine(line);
+                Console.WriteLine(l1);
+                if (l1.Contains("=")) {
+                    //split l1 on = the first is key and the second is value
+                    string[] split = l1.Split("=");
+                    string key = split[0].Trim();
+                    string value = split[1].Trim();
+
+                    //check if key is a valid key
+                    if (validKeys.Contains(key)) {
+                        //check if key is game
+                        if (key == "game") {
+                            //check if value is a valid game
+                            if (value.ToUpper() == "EU4" || value.ToUpper() == "IR") {
+                                game = value.ToUpper();
+                            }
+                            else {
+                                Console.WriteLine("Invalid game in config.txt");
+                                Console.WriteLine("Press any key to exit...");
+                                Console.ReadKey();
+                                Environment.Exit(0);
+                            }
+                        }
+                    }
+                    else {
+                        Console.WriteLine("Invalid key in config.txt");
+                        Console.WriteLine("Press any key to exit...");
+                        Console.ReadKey();
+                        Environment.Exit(0);
+                    }
+
+                }
+            }
+
+        }
     }
     
 }
