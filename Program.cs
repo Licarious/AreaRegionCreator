@@ -1,12 +1,14 @@
 ﻿using AreaRegionCreator;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Text;
+using System;
 
 internal class Program
 {
     private static void Main() {
         double minimumSharedAreaToCount = 0.05; //prevents a few pixels from filling the entire prov that would otherwise be not counted
-        bool debug = false;
+        bool debug = true;
 
         //check if the correct version of .NET is installed
         if (Environment.Version.Major < 6) {
@@ -26,6 +28,7 @@ internal class Program
         //false takes area_region.png and area_region_definition.csv from Input folder and matches them to provinces
         bool convertPNGToIDs = true;
         string game = "EU4"; //EU4 or IR
+        string modName = "test"; //name of the output files
         ParseConfig();
 
         string[] eu4Files = { "provinces.bmp", "definition.csv", "area.txt", "region.txt", "superregion.txt" };
@@ -69,8 +72,12 @@ internal class Program
             WriteAreas(areas, regions, superRegions);
             Localize(provDict, areas, regions);
         }
-        WriteareaRegionDefinitions(regions, superRegions);
+        WriteAreaRegionDefinitions(regions, superRegions);
         DrawAreas(areas);
+
+        if (debug) {
+            DebugDrawRegions(regions);
+        }
 
         stopwatch.Stop();
         Console.WriteLine("Time elapsed: {0}", stopwatch.Elapsed);
@@ -269,10 +276,11 @@ internal class Program
                 Random rnd = new();
                 foreach (Area area in areas.Values) {
                     if (area.color.A == 0) {
-                        Color color = Color.Empty;
-                        do {
+                        Color color = StringToColor(area.name);
+                        while (usedAreaColors.Contains(color)){
+                            Console.WriteLine(area.name + " color {0} is already used, generating new color", color);
                             color = Color.FromArgb(rnd.Next(256), rnd.Next(256), rnd.Next(256));
-                        } while (usedAreaColors.Contains(color));
+                        }
                         area.color = color;
                     }
                 }
@@ -653,7 +661,7 @@ internal class Program
                         }
 
                         //if the shared coords is >50% of prov coords then majority of the province is in the area and we can break
-                        if (prov.Value.coords.Intersect(area.Value.coords).Count() > (prov.Value.coords.Count() / 2)) {
+                        if (prov.Value.coords.Intersect(area.Value.coords).Count() > (prov.Value.coords.Count / 2)) {
                             break;
                         }
                     }
@@ -697,8 +705,8 @@ internal class Program
             Console.WriteLine("Writing areas and regions to file...");
 
             //check if output folder exists
-            if (!Directory.Exists(localDir + @"\Output")) {
-                Directory.CreateDirectory(localDir + @"\Output");
+            if (!Directory.Exists(localDir + @"\Output\"+modName)) {
+                Directory.CreateDirectory(localDir + @"\Output\" + modName);
             }
 
             //create a list of areas
@@ -713,7 +721,7 @@ internal class Program
             //write the areas to file
             string fName = "areas.txt";
             if (game == "EU4") fName = "area.txt";
-            using (StreamWriter sw = new(localDir + @"\Output\"+fName)) {
+            using (StreamWriter sw = new(localDir + @"\Output\" + modName + @"\"+fName)) {
                 if (game == "EU4") sw.WriteLine("random_new_world_region = {\n}");
                 foreach (Area area in areaList) {
                     sw.WriteLine(area.name + " = { #" + area.provs.Count);
@@ -754,8 +762,13 @@ internal class Program
             //write the regions to file
             fName = "regions.txt";
             if (game == "EU4") fName = "region.txt";
-            using (StreamWriter sw = new(localDir + @"\Output\" + fName)) {
+            using (StreamWriter sw = new(localDir + @"\Output\" + modName + @"\"+ fName)) {
                 foreach (Regions region in regionList) {
+                    //sort region.areas by area.name
+                    if (region.areas.Count > 1) {
+                        region.areas.Sort((x, y) => x.name.CompareTo(y.name));
+                    }
+                    
                     sw.WriteLine(region.name + " = { #" + region.areas.Count + " areas");
                     if (region.color.A != 0) {
                         sw.WriteLine("\tcolor = rgb { " + region.color.R + " " + region.color.G + " " + region.color.B + " }");
@@ -791,20 +804,19 @@ internal class Program
 
                 //write the superRegions to file
                 fName = "superregion.txt";
-                using (StreamWriter sw = new(localDir + @"\Output\" + fName)) {
-                    sw.WriteLine("new_world_superregion = {\n}");
-                    foreach (SuperRegion superRegion in superRegionList) {
-                        sw.WriteLine(superRegion.name + " = { #" + superRegion.regions.Count + " regions");
+                using StreamWriter sw = new(localDir + @"\Output\" + modName + @"\" + fName);
+                sw.WriteLine("new_world_superregion = {\n}");
+                foreach (SuperRegion superRegion in superRegionList) {
+                    sw.WriteLine(superRegion.name + " = { #" + superRegion.regions.Count + " regions");
 
-                        if (superRegion.restrict_charter) {
-                            sw.WriteLine("\n\trestrict_charter\t\t# harder to get TC here.\n");
-                        }
-                        
-                        foreach (Regions region in superRegion.regions) {
-                            sw.WriteLine("\t" + region.name);
-                        }
-                        sw.WriteLine("}\n");
+                    if (superRegion.restrict_charter) {
+                        sw.WriteLine("\n\trestrict_charter\t\t# harder to get TC here.\n");
                     }
+
+                    foreach (Regions region in superRegion.regions) {
+                        sw.WriteLine("\t" + region.name);
+                    }
+                    sw.WriteLine("}\n");
                 }
             }
         }
@@ -814,8 +826,8 @@ internal class Program
             Console.WriteLine("Localizing provinces...");
 
             //check if output\english folder exists
-            if (!Directory.Exists(localDir + @"\Output\english")) {
-                Directory.CreateDirectory(localDir + @"\Output\english");
+            if (!Directory.Exists(localDir + @"\Output\" + modName + @"\english")) {
+                Directory.CreateDirectory(localDir + @"\Output\" + modName + @"\english");
             }
 
             //create a list of provinces
@@ -828,7 +840,7 @@ internal class Program
             provList.Sort((x, y) => x.id.CompareTo(y.id));
 
             //write the provinces to file
-            using (StreamWriter sw = new(localDir + @"\Output\english\03_provinces_l_english.yml")) {
+            using (StreamWriter sw = new(localDir + @"\Output\" + modName + @"\english\03_provinces_l_english.yml")) {
                 sw.WriteLine("l_english:");
                 foreach (Province prov in provList) {
                     sw.WriteLine(" PROV" + prov.id + ":0 \"" + prov.name + "\"");
@@ -836,7 +848,7 @@ internal class Program
             }
 
             //write regions and areas to localization
-            using (StreamWriter sw = new(localDir + @"\Output\english\03_areas_regions_l_english.yml")) {
+            using (StreamWriter sw = new(localDir + @"\Output\" + modName + @"\english\03_areas_regions_l_english.yml")) {
                 sw.WriteLine("l_english:");
                 if (game == "EU4") {
                     sw.WriteLine(" #SUPERREGIONS");
@@ -859,19 +871,19 @@ internal class Program
                 }
             }
         }
-        void WriteareaRegionDefinitions(Dictionary<string, Regions> regions, Dictionary<string, SuperRegion> superRegions) {
+        void WriteAreaRegionDefinitions(Dictionary<string, Regions> regions, Dictionary<string, SuperRegion> superRegions) {
             Console.WriteLine("Writing area_region_deff.txt...");
 
             //check if output folder exists
-            if (!Directory.Exists(localDir + @"\Output\area_region")) {
-                Directory.CreateDirectory(localDir + @"\Output\area_region");
+            if (!Directory.Exists(localDir + @"\Output\"+ modName + @"\area_region")) {
+                Directory.CreateDirectory(localDir + @"\Output\" + modName + @"\area_region");
             }
             
             HashSet<Color> usedColors = new();
             Random rnd = new();
 
             //write areaRegionDefinitions.csv
-            using StreamWriter sw = new(localDir + @"\Output\area_region\area_region_definition.csv");
+            using StreamWriter sw = new(localDir + @"\Output\"+ modName + @"\area_region\area_region_definition.csv");
             if (game == "IR") {
                 sw.WriteLine("#Red;Green;Blue;AreaName;RegionName;SaveColorForArea;RegionRed(optional);RegionGreen(optional);RegionBlue(optional)");
                 foreach (KeyValuePair<string, Regions> region in regions) {
@@ -976,14 +988,271 @@ internal class Program
             }
 
             //save image
-            areaMap.Save(localDir + @"\Output\area_region\area_region" + sufex + ".png");
+            areaMap.Save(localDir + @"\Output\"+ modName + @"\area_region\area_region" + sufex + ".png");
 
+        }
+
+        void DebugDrawRegions(Dictionary<string, Regions> regions) {
+            //if Output\debug folder does not exist, create it
+            if (!Directory.Exists(localDir + @"\Output\" + modName + @"\debug")) {
+                Directory.CreateDirectory(localDir + @"\Output\"+ modName + @"\debug");
+            }
+
+            //create new image file the same size as provinces.png
+            Bitmap regionMap = new(localDir + @"\Input\map_data\provinces.png");
+
+            regionMap = new Bitmap(regionMap.Width, regionMap.Height);
+
+
+            //draw each region
+            foreach (KeyValuePair<string, Regions> region in regions) {
+                //set color of region to first area in region if alpha is 0
+                if (region.Value.color.A == 0 && region.Value.areas.Count > 0) {
+                    region.Value.color = region.Value.areas[0].color;
+                }
+                foreach (Area area in region.Value.areas) {                   
+                    foreach (Province prov in area.provs) {
+                        region.Value.coords.UnionWith(prov.coords);
+                        area.coords.UnionWith(prov.coords);
+                        foreach ((int x, int y) in prov.coords) {
+                            regionMap.SetPixel(x, y, region.Value.color);
+                        }
+                    }
+                }
+
+            }
+            
+
+            //save image
+            regionMap.Save(localDir + @"\Output\"+ modName + @"\debug\Region.png");
+
+            WriteNamesRegion(regions);
+            WriteNamesArea(regions);
+
+        }
+
+        void WriteNamesRegion(Dictionary<string, Regions> regions) {
+            //load merged image from localDir + "\\Output\\" + modName+ "\\" + holdingLevel + modName + ".png"
+            Bitmap? newBmp = new(localDir + @"\Output\"+ modName + @"\debug\Region.png");
+
+            MaximumRectangle mr = new();
+
+            Graphics g = Graphics.FromImage(newBmp);
+            StringFormat stringFormat = new() {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+
+            float sizeMult = 1.0f;
+
+            int minFontSize = 8;
+            string font = "aral";
+
+            //for each region in regions dictionray
+            foreach (KeyValuePair<string, Regions> region in regions) {
+                Regions r = region.Value;
+
+                //skip empty regions
+                if (r.coords.Count == 0) continue;
+
+                //print progress
+                Console.WriteLine("\t" + r.name + " " + r.areas.Count);
+
+                //find largest rectangle in region
+                (int x, int y) center = (0, 0);
+                (int h, int w) size = (0, 0);
+
+                bool floodFill = true;
+                //if any area name in the region contains mare, mara, oceanus, sinus, freti, or river
+                foreach (Area area in r.areas) {
+                    if (area.name.ToLower().Contains("mare") || area.name.ToLower().Contains("mara") || area.name.ToLower().Contains("oceanus") || area.name.ToLower().Contains("sinus") || area.name.ToLower().Contains("freti") || area.name.ToLower().Contains("river")) {
+                        floodFill = false;
+                        break;
+                    }
+                }
+
+
+                (center, size) = mr.center(r.coords.ToList(), floodFill);
+
+                string[] words = r.name.Replace("region", "").Replace("_", " ").Trim().Split();
+                //capitilize first leter of each word
+                for (int i = 0; i < words.Length; i++) {
+                    words[i] = string.Concat(words[i][..1].ToUpper(), words[i].AsSpan(1));
+                }
+
+
+                //get all but first element of words and join them with " "
+                string name = string.Join(" ", words).Trim();
+
+
+                Font font1 = new(font, minFontSize);
+
+                //calculate the size of the string
+                SizeF stringSize = g.MeasureString(name, font1);
+
+                //increase the size of the string until it fills the holding
+                while (stringSize.Width < (size.h * sizeMult) && stringSize.Height < (size.w * sizeMult)) {
+                    font1 = new Font(font, font1.Size + 1);
+                    stringSize = g.MeasureString(name, font1);
+                }
+
+                if (name.Split().Length > 1) {
+                    string name2 = string.Join("\n", words).Trim();
+                    Font font2 = new(font, minFontSize);
+                    SizeF stringSize2 = g.MeasureString(name2, font2);
+
+                    while (stringSize2.Width < (size.h * sizeMult) && stringSize2.Height < (size.w * sizeMult)) {
+                        font2 = new Font(font, font2.Size + 1);
+                        stringSize2 = g.MeasureString(name2, font2);
+                    }
+
+                    //if area covered by font2 is greater than area covered by font1 then use font2
+                    if (stringSize2.Width * stringSize2.Height > stringSize.Width * stringSize.Height) {
+                        font1 = font2;
+                        stringSize = stringSize2;
+                        name = name2;
+                    }
+                }
+
+                //invert the color of the holding color
+                Color textColor = Color.FromArgb(255 - r.color.R, 255 - r.color.G, 255 - r.color.B);
+
+                //if the 2 colors are too close to eachother
+                int colorClosness = 50;
+                if (Math.Abs(textColor.R - r.color.R) < colorClosness && Math.Abs(textColor.G - r.color.G) < colorClosness && Math.Abs(textColor.B - r.color.B) < colorClosness) {
+                    //rotate the color of the text 120degrees around the color wheel
+                    textColor = Color.FromArgb(r.color.R, (r.color.G + 85) % 255, (r.color.B + 170) % 255);
+                    Console.WriteLine("\tRoating color of " + r.name);
+                }
+
+                //write holding name to map centered at h.center with h.color and font Arial 12 bold
+                g.DrawString(name, font1, new SolidBrush(textColor), new Point(center.x, center.y), stringFormat);
+
+            }
+
+            newBmp.Save(localDir + @"\Output\"+ modName + @"\debug\region_names.png");
+
+        }
+
+        void WriteNamesArea(Dictionary<string, Regions> regions) {
+            //load merged image from localDir + "\\Output\\" + modName+ "\\" + holdingLevel + modName + ".png"
+            Bitmap? newBmp = new(localDir + @"\Output\"+ modName + @"\area_region\area_region.png");
+
+            MaximumRectangle mr = new();
+
+            Graphics g = Graphics.FromImage(newBmp);
+            StringFormat stringFormat = new() {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+
+            float sizeMult = 1.0f;
+
+            int minFontSize = 8;
+            string font = "aral";
+
+            //for each region in regions dictionray
+            foreach (KeyValuePair<string, Regions> region in regions) {
+                foreach (Area r in region.Value.areas) {
+
+                    //skip empty regions
+                    if (r.coords.Count == 0 || r.name.Contains("unused")) continue;
+
+                    //print progress
+                    Console.WriteLine("\t" + r.name);
+
+                    //find largest rectangle in region
+                    (int x, int y) center = (0, 0);
+                    (int h, int w) size = (0, 0);
+
+                    bool floodFill = true;
+                    
+                    (center, size) = mr.center(r.coords.ToList(), floodFill);
+                    
+                    string[] words = r.name.Replace("area", "").Replace("_"," ").Trim().Split(" ");
+                    //capitilize first leter of each word
+                    for (int i = 0; i < words.Length; i++) {
+                        words[i] = string.Concat(words[i][..1].ToUpper(), words[i].AsSpan(1));
+                    }
+
+
+                    //get all but first element of words and join them with " "
+                    string name = string.Join(" ", words).Trim();
+
+
+                    Font font1 = new(font, minFontSize);
+
+                    //calculate the size of the string
+                    SizeF stringSize = g.MeasureString(name, font1);
+
+                    //increase the size of the string until it fills the holding
+                    while (stringSize.Width < (size.h * sizeMult) && stringSize.Height < (size.w * sizeMult)) {
+                        font1 = new Font(font, font1.Size + 1);
+                        stringSize = g.MeasureString(name, font1);
+                    }
+
+                    if (name.Split().Length > 1) {
+                        string name2 = string.Join("\n", words).Trim();
+                        Font font2 = new(font, minFontSize);
+                        SizeF stringSize2 = g.MeasureString(name2, font2);
+
+                        while (stringSize2.Width < (size.h * sizeMult) && stringSize2.Height < (size.w * sizeMult)) {
+                            font2 = new Font(font, font2.Size + 1);
+                            stringSize2 = g.MeasureString(name2, font2);
+                        }
+
+                        //if area covered by font2 is greater than area covered by font1 then use font2
+                        if (stringSize2.Width * stringSize2.Height > stringSize.Width * stringSize.Height) {
+                            font1 = font2;
+                            stringSize = stringSize2;
+                            name = name2;
+                        }
+                    }
+
+                    //invert the color of the holding color
+                    Color textColor = Color.FromArgb(255 - r.color.R, 255 - r.color.G, 255 - r.color.B);
+
+                    //if the 2 colors are too close to eachother
+                    int colorClosness = 50;
+                    if (Math.Abs(textColor.R - r.color.R) < colorClosness && Math.Abs(textColor.G - r.color.G) < colorClosness && Math.Abs(textColor.B - r.color.B) < colorClosness) {
+                        //rotate the color of the text 120degrees around the color wheel
+                        textColor = Color.FromArgb(r.color.R, (r.color.G + 85) % 255, (r.color.B + 170) % 255);
+                        Console.WriteLine("\tRoating color of " + r.name);
+                    }
+
+                    //write holding name to map centered at h.center with h.color and font Arial 12 bold
+                    g.DrawString(name, font1, new SolidBrush(textColor), new Point(center.x, center.y), stringFormat);
+
+                }
+            }
+
+            newBmp.Save(localDir + @"\Output\"+ modName + @"\debug\area_names.png");
+
+        }
+
+        //string to color
+        Color StringToColor(string str) {
+            //take a string and convert it to a random consistent color
+            int hash = str.GetHashCode();
+            int r = (hash & 0xFF0000) >> 16;
+            int g = (hash & 0x00FF00) >> 8;
+            int b = hash & 0x0000FF;
+
+            return Color.FromArgb(r, g, b);
         }
 
         string CapitalizeString(string str, string remove="") {
             List<string> name = str.Replace(remove, "").Replace("_", " ").Trim().Split(" ").ToList();
             for (int i = 0; i < name.Count; i++) {
-                name[i] = name[i].First().ToString().ToUpper() + name[i][1..];
+                //sequence contains no elements try catch
+                try {
+                    name[i] = string.Concat(name[i][..1].ToUpper(), name[i].AsSpan(1));
+                }
+                catch (Exception) {
+                    name[i] = name[i].ToUpper();
+                }
+
+                //name[i] = name[i].First().ToString().ToUpper() + name[i][1..];
             }
             return string.Join(" ", name);
         }
@@ -991,21 +1260,19 @@ internal class Program
         void ParseConfig() {
             
             string[] lines = File.ReadAllLines(localDir + @"\Input\config.txt");
-            string[] validKeys = { "game" };
+            string[] validKeys = { "game", "name" };
             foreach(string line in lines) {
                 string l1 = CleanLine(line);
-                Console.WriteLine(l1);
-                if (l1.Contains("=")) {
+                
+                if (l1.Contains('=')) {
                     //split l1 on = the first is key and the second is value
                     string[] split = l1.Split("=");
                     string key = split[0].Trim();
                     string value = split[1].Trim();
 
-                    //check if key is a valid key
-                    if (validKeys.Contains(key)) {
-                        //check if key is game
-                        if (key == "game") {
-                            //check if value is a valid game
+                    //switch on key
+                    switch (key) {
+                        case "game":
                             if (value.ToUpper() == "EU4" || value.ToUpper() == "IR") {
                                 game = value.ToUpper();
                             }
@@ -1015,15 +1282,21 @@ internal class Program
                                 Console.ReadKey();
                                 Environment.Exit(0);
                             }
-                        }
+                            break;
+                        case "name":
+                            if (value.Length > 0) {
+                                modName = value.Replace("\"", "").Trim();
+                            }
+                            else {
+                                Console.WriteLine("Invalid name in config.txt");
+                                Console.WriteLine("Press any key to exit...");
+                                Console.ReadKey();
+                                Environment.Exit(0);
+                            }
+                            break;
+                        
                     }
-                    else {
-                        Console.WriteLine("Invalid key in config.txt");
-                        Console.WriteLine("Press any key to exit...");
-                        Console.ReadKey();
-                        Environment.Exit(0);
-                    }
-
+                    Console.WriteLine(l1);
                 }
             }
 

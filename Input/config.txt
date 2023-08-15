@@ -1,1 +1,4 @@
 game = IR #EU4 / IR
+
+#name used to break up multiple runs into different files
+name = "invictus3"

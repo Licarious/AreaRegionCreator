@@ -1,1 +1,1 @@
-start /d "%~dp0bin\Debug\" AreaRegionCreator.exe
+start /d "%~dp0bin\Debug\net6.0\" AreaRegionCreator.exe

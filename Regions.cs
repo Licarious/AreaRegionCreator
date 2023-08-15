@@ -9,6 +9,7 @@ namespace AreaRegionCreator
         public Color color = Color.FromArgb(0,0,0,0); 
         public List<Area> areas = new();
         public List<(string start, string end)> monsoonList = new();
+        public HashSet<(int x, int y)> coords = new();
 
         public Regions(string name) {
             this.name = name;
