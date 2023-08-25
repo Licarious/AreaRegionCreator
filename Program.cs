@@ -3,6 +3,9 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Text;
 using System;
+using System.Security.Cryptography;
+using System.Text;
+using System.Drawing.Drawing2D;
 
 internal class Program
 {
@@ -29,6 +32,7 @@ internal class Program
         bool convertPNGToIDs = true;
         string game = "EU4"; //EU4 or IR
         string modName = "test"; //name of the output files
+        string areaSorting = "alphabetical"; //alphabetical sort the area names in the output file, group groups them by region, "" keeps the order from area_region_definition.csv
         ParseConfig();
 
         string[] eu4Files = { "provinces.bmp", "definition.csv", "area.txt", "region.txt", "superregion.txt" };
@@ -714,16 +718,42 @@ internal class Program
             foreach (KeyValuePair<string, Area> area in areas) {
                 areaList.Add(area.Value);
             }
-
-            //sort the list by areaNameNamearea
-            areaList.Sort((x, y) => x.name.CompareTo(y.name));
+            if (areaSorting == "alphabetical") {
+                //sort the list by areaNameNamearea
+                areaList.Sort((x, y) => x.name.CompareTo(y.name));
+            }
+            else if (areaSorting == "group") {
+                //clear the list
+                areaList.Clear();
+                foreach (KeyValuePair<string, Regions> region in regions) {
+                    //add each area in the region to the list
+                    foreach (Area area in region.Value.areas) {
+                        areaList.Add(area);
+                    }
+                }
+            }
 
             //write the areas to file
             string fName = "areas.txt";
             if (game == "EU4") fName = "area.txt";
             using (StreamWriter sw = new(localDir + @"\Output\" + modName + @"\"+fName)) {
                 if (game == "EU4") sw.WriteLine("random_new_world_region = {\n}");
+                string lastRegion = "";
                 foreach (Area area in areaList) {
+                    if (areaSorting == "group") {
+                        //find the region the area is in
+                        foreach (KeyValuePair<string, Regions> region in regions) {
+                            if (region.Value.areas.Contains(area)) {
+                                //if the region is different from the last region
+                                if (region.Key != lastRegion) {
+                                    //write the region
+                                    sw.WriteLine("\n#" + region.Key);
+                                    lastRegion = region.Key;
+                                }
+                                break;
+                            }
+                        }
+                    }
                     sw.WriteLine(area.name + " = { #" + area.provs.Count);
                     if (area.writeColor) {
                         if(game == "IR")
@@ -962,8 +992,8 @@ internal class Program
             Console.WriteLine("Drawing area_region.png...");
 
             //check if output folder exists
-            if (!Directory.Exists(localDir + @"\Output\area_region")) {
-                Directory.CreateDirectory(localDir + @"\Output\area_region");
+            if (!Directory.Exists(localDir + @"\Output\"+modName+@"\area_region")) {
+                Directory.CreateDirectory(localDir + @"\Output\"+modName+@"\area_region");
             }
 
             Bitmap map = new(1, 1);
@@ -1000,9 +1030,7 @@ internal class Program
 
             //create new image file the same size as provinces.png
             Bitmap regionMap = new(localDir + @"\Input\map_data\provinces.png");
-
             regionMap = new Bitmap(regionMap.Width, regionMap.Height);
-
 
             //draw each region
             foreach (KeyValuePair<string, Regions> region in regions) {
@@ -1019,16 +1047,13 @@ internal class Program
                         }
                     }
                 }
-
             }
             
-
             //save image
             regionMap.Save(localDir + @"\Output\"+ modName + @"\debug\Region.png");
 
             WriteNamesRegion(regions);
             WriteNamesArea(regions);
-
         }
 
         void WriteNamesRegion(Dictionary<string, Regions> regions) {
@@ -1038,6 +1063,7 @@ internal class Program
             MaximumRectangle mr = new();
 
             Graphics g = Graphics.FromImage(newBmp);
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             StringFormat stringFormat = new() {
                 Alignment = StringAlignment.Center,
                 LineAlignment = StringAlignment.Center
@@ -1045,8 +1071,8 @@ internal class Program
 
             float sizeMult = 1.0f;
 
-            int minFontSize = 8;
-            string font = "aral";
+            int minFontSize = 7;
+            string font = "Verdana";
 
             //for each region in regions dictionray
             foreach (KeyValuePair<string, Regions> region in regions) {
@@ -1115,7 +1141,9 @@ internal class Program
                 }
 
                 //invert the color of the holding color
-                Color textColor = Color.FromArgb(255 - r.color.R, 255 - r.color.G, 255 - r.color.B);
+                Color textColor = opisiteExtremeColor(r.color);
+                /*
+                //Color.FromArgb(255 - r.color.R, 255 - r.color.G, 255 - r.color.B);
 
                 //if the 2 colors are too close to eachother
                 int colorClosness = 50;
@@ -1123,6 +1151,11 @@ internal class Program
                     //rotate the color of the text 120degrees around the color wheel
                     textColor = Color.FromArgb(r.color.R, (r.color.G + 85) % 255, (r.color.B + 170) % 255);
                     Console.WriteLine("\tRoating color of " + r.name);
+                }
+                */
+                //if text size is greater than 20px then set antialiasing to none
+                if (font1.Size > 20) {
+                    g.TextRenderingHint = TextRenderingHint.SingleBitPerPixel;
                 }
 
                 //write holding name to map centered at h.center with h.color and font Arial 12 bold
@@ -1141,6 +1174,7 @@ internal class Program
             MaximumRectangle mr = new();
 
             Graphics g = Graphics.FromImage(newBmp);
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             StringFormat stringFormat = new() {
                 Alignment = StringAlignment.Center,
                 LineAlignment = StringAlignment.Center
@@ -1148,8 +1182,8 @@ internal class Program
 
             float sizeMult = 1.0f;
 
-            int minFontSize = 8;
-            string font = "aral";
+            int minFontSize = 7;
+            string font = "Verdana";
 
             //for each region in regions dictionray
             foreach (KeyValuePair<string, Regions> region in regions) {
@@ -1210,14 +1244,21 @@ internal class Program
                     }
 
                     //invert the color of the holding color
-                    Color textColor = Color.FromArgb(255 - r.color.R, 255 - r.color.G, 255 - r.color.B);
-
+                    Color textColor = opisiteExtremeColor(r.color);
+                    /*
+                    //Color.FromArgb(255 - r.color.R, 255 - r.color.G, 255 - r.color.B);
+                    
                     //if the 2 colors are too close to eachother
                     int colorClosness = 50;
                     if (Math.Abs(textColor.R - r.color.R) < colorClosness && Math.Abs(textColor.G - r.color.G) < colorClosness && Math.Abs(textColor.B - r.color.B) < colorClosness) {
                         //rotate the color of the text 120degrees around the color wheel
                         textColor = Color.FromArgb(r.color.R, (r.color.G + 85) % 255, (r.color.B + 170) % 255);
                         Console.WriteLine("\tRoating color of " + r.name);
+                    }
+                    */
+                    //if text size is greater than 20px then set antialiasing to none
+                    if (font1.Size > 20) {
+                        g.TextRenderingHint = TextRenderingHint.SingleBitPerPixel;
                     }
 
                     //write holding name to map centered at h.center with h.color and font Arial 12 bold
@@ -1232,13 +1273,10 @@ internal class Program
 
         //string to color
         Color StringToColor(string str) {
-            //take a string and convert it to a random consistent color
-            int hash = str.GetHashCode();
-            int r = (hash & 0xFF0000) >> 16;
-            int g = (hash & 0x00FF00) >> 8;
-            int b = hash & 0x0000FF;
-
-            return Color.FromArgb(r, g, b);
+            //takes a string and converts it to a random constant color
+            using SHA256 sha256Hash = SHA256.Create();
+            byte[] data = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(str));
+            return Color.FromArgb(data[0], data[1], data[2]);
         }
 
         string CapitalizeString(string str, string remove="") {
@@ -1257,10 +1295,29 @@ internal class Program
             return string.Join(" ", name);
         }
 
+        Color opisiteExtremeColor(Color c) {
+            //for each rgb value in color find if it is closer to 0 or 255 and set it to the opposite
+            int r = c.R;
+            int g = c.G;
+            int b = c.B;
+
+            if (r > 127) r = 0;
+            else r = 255;
+
+            if (g > 127) g = 0;
+            else g = 255;
+
+            if (b > 127) b = 0;
+            else b = 255;
+
+            return Color.FromArgb(r, g, b);
+
+        }
+
         void ParseConfig() {
             
             string[] lines = File.ReadAllLines(localDir + @"\Input\config.txt");
-            string[] validKeys = { "game", "name" };
+            string[] validKeys = { "game", "name", "areaSorting" };
             foreach(string line in lines) {
                 string l1 = CleanLine(line);
                 
@@ -1269,7 +1326,7 @@ internal class Program
                     string[] split = l1.Split("=");
                     string key = split[0].Trim();
                     string value = split[1].Trim();
-
+                    
                     //switch on key
                     switch (key) {
                         case "game":
@@ -1277,10 +1334,8 @@ internal class Program
                                 game = value.ToUpper();
                             }
                             else {
-                                Console.WriteLine("Invalid game in config.txt");
-                                Console.WriteLine("Press any key to exit...");
-                                Console.ReadKey();
-                                Environment.Exit(0);
+                                Console.WriteLine("Invalid game in config.txt\nusing default game IR");
+                                game = "IR";
                             }
                             break;
                         case "name":
@@ -1288,13 +1343,20 @@ internal class Program
                                 modName = value.Replace("\"", "").Trim();
                             }
                             else {
-                                Console.WriteLine("Invalid name in config.txt");
-                                Console.WriteLine("Press any key to exit...");
-                                Console.ReadKey();
-                                Environment.Exit(0);
+                                Console.WriteLine("Invalid name in config.txt \nusing default as mod name");
+                                modName = "default";
                             }
                             break;
-                        
+                        case "areaSorting":
+                            if (value.ToLower() == "alphabetical" || value.ToLower() == "group") {
+                                areaSorting = value.ToLower();
+                            }
+                            else {
+                                Console.WriteLine("Invalid areaSorting in config.txt \nno organization will be used");
+                                areaSorting = "";
+                            }
+                            break;
+
                     }
                     Console.WriteLine(l1);
                 }

@@ -2,3 +2,6 @@ game = IR #EU4 / IR
 
 #name used to break up multiple runs into different files
 name = "invictus3"
+
+#how areas will be sorted when writing to file
+areaSorting = alphabetical
